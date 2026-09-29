@@ -1,0 +1,56 @@
+==========================================================================
+EMBEDDING PREVIEW - Mutual Fund FAQ Assistant
+model    : sentence-transformers/all-MiniLM-L6-v2
+dim      : 384
+showing  : first 5 embeddings, first 10 dimensions
+vectors  : 90
+==========================================================================
+
+--------------------------------------------------------------------------
+[1] HDFC Large Cap Fund__scheme_page__0000
+  scheme  : HDFC Large Cap Fund   section: Overview
+  source  : https://groww.in/mutual-funds/hdfc-large-cap-fund-direct-growth
+  text    : HDFC Large Cap Fund Direct Growth - NAV, Mutual Fund Performance & Portfolio Stocks Monito...
+  norm    : 1.000000  (L2-normalised)
+--------------------------------------------------------------------------
+  first 10 dims: +0.04959  -0.07250  -0.04870  +0.00826  +0.12853  +0.01759  +0.02257  +0.00904  -0.06652  +0.02830
+
+--------------------------------------------------------------------------
+[2] HDFC Large Cap Fund__scheme_page__0001
+  scheme  : HDFC Large Cap Fund   section: Overview
+  source  : https://groww.in/mutual-funds/hdfc-large-cap-fund-direct-growth
+  text    : gin your stock market journey F&O Trade in Futures & Options Trade in F&O using the termin...
+  norm    : 1.000000  (L2-normalised)
+--------------------------------------------------------------------------
+  first 10 dims: +0.06469  -0.10429  -0.04370  +0.02432  +0.11083  +0.03305  +0.02671  +0.07357  -0.01764  +0.01858
+
+--------------------------------------------------------------------------
+[3] HDFC Large Cap Fund__scheme_page__0002
+  scheme  : HDFC Large Cap Fund   section: Overview
+  source  : https://groww.in/mutual-funds/hdfc-large-cap-fund-direct-growth
+  text    : dities Trade in Crude Oil, Gold, Silver and more API trading Set up and execute trades thr...
+  norm    : 1.000000  (L2-normalised)
+--------------------------------------------------------------------------
+  first 10 dims: +0.02700  -0.06590  -0.05378  +0.02240  +0.11836  -0.01098  +0.04759  +0.02034  -0.05959  +0.00790
+
+--------------------------------------------------------------------------
+[4] HDFC Large Cap Fund__scheme_page__0003
+  scheme  : HDFC Large Cap Fund   section: Overview
+  source  : https://groww.in/mutual-funds/hdfc-large-cap-fund-direct-growth
+  text    : iplined monthly investing. Mutual Funds screener Track Funds Import funds and track all in...
+  norm    : 1.000000  (L2-normalised)
+--------------------------------------------------------------------------
+  first 10 dims: +0.07561  -0.09196  -0.06554  +0.00571  +0.10092  +0.01212  +0.01032  +0.04796  -0.06844  +0.02953
+
+--------------------------------------------------------------------------
+[5] HDFC Large Cap Fund__scheme_page__0004
+  scheme  : HDFC Large Cap Fund   section: Minimum investments
+  source  : https://groww.in/mutual-funds/hdfc-large-cap-fund-direct-growth
+  text    : Min. for 1st investment ₹100 Min. for 2nd investment ₹100...
+  norm    : 1.000000  (L2-normalised)
+--------------------------------------------------------------------------
+  first 10 dims: +0.09575  -0.01173  -0.08713  +0.00834  +0.04588  +0.05250  +0.04398  +0.12737  -0.05723  +0.03593
+
+==========================================================================
+END
+==========================================================================

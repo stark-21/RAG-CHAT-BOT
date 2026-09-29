@@ -1,0 +1,30 @@
+# Mutual Fund FAQ Assistant — RAG chatbot
+# Python 3.10+
+#
+# Install:  pip install -r requirements.txt
+# These are floors, not exact pins. For a fully reproducible demo run
+#   pip freeze > requirements.lock.txt
+# and commit that alongside this file.
+
+# --- Embeddings (local, no API key) ---
+sentence-transformers>=5.0.0      # provides all-MiniLM-L6-v2 (384-dim)
+
+# --- Vector store (local, persisted to disk) ---
+chromadb>=1.0.0
+
+# --- LLM (only metered/free-tier call) ---
+groq>=0.15.0
+
+# --- UI ---
+streamlit>=1.40.0
+
+# --- Config / secrets ---
+python-dotenv>=1.0.1
+
+# --- Ingestion only: fetching + parsing ---
+requests>=2.32.0
+beautifulsoup4>=4.12.0
+pypdf>=5.0.0
+
+# --- Tests ---
+pytest>=8.0.0

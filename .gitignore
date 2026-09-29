@@ -1,0 +1,33 @@
+# --- Secrets: never commit ---
+.env
+.env.*
+!.env.example
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Python bytecode / caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Build artifacts: regenerate with `python ingest.py` ---
+data/chroma/
+
+# --- Large or regenerable artifacts ---
+# Keep data/raw/ snapshots and data/chunks.txt in version control: they are
+# reviewable evidence of the ingestion + chunking steps (PRD N4).
+*.log
+
+# --- Editor / OS noise ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
