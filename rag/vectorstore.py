@@ -10,6 +10,7 @@ produced by rag/embeddings.py.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 
 import chromadb
@@ -33,8 +34,15 @@ def _sanitize(metadata: dict) -> dict:
     return clean
 
 
+@lru_cache(maxsize=1)
 def get_client():
-    """Open (or create) the persistent Chroma client."""
+    """Open (or create) the persistent Chroma client. Once per process.
+
+    PersistentClient construction opens the SQLite handle, reads the HNSW index
+    headers, and starts a local telemetry-free event loop. Doing that per query
+    put avoidable work in front of every question, so the handle is cached. A
+    caller that needs a distinct client can pass one in explicitly.
+    """
     chroma_dir = Path(config.CONFIG.chroma_dir)
     chroma_dir.mkdir(parents=True, exist_ok=True)
     return chromadb.PersistentClient(
@@ -43,8 +51,9 @@ def get_client():
     )
 
 
+@lru_cache(maxsize=1)
 def get_collection(client=None, create: bool = True):
-    """Return the corpus collection, creating it if needed."""
+    """Return the corpus collection, creating it if needed. Once per process."""
     client = client or get_client()
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
@@ -53,8 +62,14 @@ def get_collection(client=None, create: bool = True):
 
 
 def reset_collection(client=None):
-    """Delete and recreate the collection. Makes ingest idempotent."""
+    """Delete and recreate the collection. Makes ingest idempotent.
+
+    Drops the cached handles first: they point at a collection that no longer
+    exists, so a caller that had already opened it would keep querying a dead
+    object.
+    """
     client = client or get_client()
+    get_collection.cache_clear()
     try:
         client.delete_collection(COLLECTION_NAME)
     except Exception:  # noqa: BLE001 - collection may not exist yet

@@ -10,6 +10,11 @@ Writes three things:
 
 Re-running is safe: the collection is dropped and rebuilt, so counts never
 double up.
+
+The app builds the store by itself when it finds it empty, so this is only
+needed to refresh the corpus or to inspect the vector space. It is NOT needed
+in a platform start command any more - that put a full ingest in front of every
+cold start, delaying the first byte the web server could serve.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from rag.chunking import chunk_documents, write_chunks_report
 from rag.embeddings import EMBEDDING_DIM, embed_documents, embed_query
 from rag.loader import load_all
 from rag.vectorstore import get_collection, store_chunks
+from rag import retrieval
 
 PREVIEW_PATH = None  # resolved from config at call time
 
@@ -119,6 +125,14 @@ def main() -> int:
 
     collection = get_collection()
     print(f"      collection count (re-read): {collection.count()}")
+
+    # The app caches both retrieval results and generated answers, and ingest
+    # changed what they would return, so anything cached against the old store
+    # is now wrong.
+    from rag import pipeline
+
+    retrieval.clear_cache()
+    pipeline.clear_cache()
 
     # --- Space sanity check ---
     print("\n" + "=" * 70)

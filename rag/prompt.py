@@ -57,14 +57,29 @@ your own knowledge, do not guess, and do not offer advice."""
 
 
 def format_context(chunks: list[ScoredChunk]) -> str:
-    """Render retrieved chunks as numbered, labelled blocks."""
+    """Render retrieved chunks as numbered, labelled blocks.
+
+    Deliberately terse. Every character here is billed against Groq's
+    input-tokens-per-minute cap, and the free tier's cap is 7,000 while a
+    grounded question costs ~1,450, so there is room for roughly four
+    questions a minute. Two fields were removed for that reason:
+
+      * `retrieved:` repeated the same date in all eight blocks. The freshness
+        line the user sees comes from chunk metadata via
+        `retrieval.freshness_date()`, not from the prompt.
+      * `scheme:` carried the full "- Direct Growth" plan suffix, which
+        `scheme_short` drops. The prompt needs the scheme named for
+        attribution, and the short form names it unambiguously.
+
+    The section label stays: it is not in the stored document text, and both
+    the model's disambiguation and the Phase 4 concept check rely on it.
+    """
     blocks: list[str] = []
     for index, chunk in enumerate(chunks, start=1):
         blocks.append(
-            f"[{index}] scheme: {chunk.scheme}\n"
+            f"[{index}] scheme: {chunk.scheme_short}\n"
             f"    section: {chunk.section}\n"
             f"    source: {chunk.source_url}\n"
-            f"    retrieved: {chunk.fetched_at}\n"
             f"    text: {chunk.text}"
         )
     return "\n\n".join(blocks)

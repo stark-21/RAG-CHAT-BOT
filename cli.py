@@ -5,6 +5,11 @@
 
 Shows the retrieved chunks for every question, so you can see *why* the bot
 answered the way it did.
+
+The embedding model and the vector store are prepared on a background thread
+before the banner is printed, so the first question does not wait on the model
+load. If preparation fails, the CLI still starts: the first question then fails
+loudly with the real reason instead of hanging.
 """
 
 from __future__ import annotations
@@ -12,7 +17,7 @@ from __future__ import annotations
 import sys
 
 import config
-from rag import generator
+from rag import boot, generator
 from rag.memory import Conversation
 from rag.pipeline import answer_question
 
@@ -81,6 +86,9 @@ def main() -> int:
         return 1
 
     conversation = Conversation()
+
+    print("Preparing the embedding model and vector store…", file=sys.stderr)
+    boot.ensure_ready(verbose=True)
 
     if len(sys.argv) > 1:
         handle(" ".join(sys.argv[1:]), conversation)

@@ -12,15 +12,17 @@ import pytest
 
 from rag import postprocess, prompt, retrieval
 from rag.generator import Completion, GeneratorError
+from rag.guard import Verdict
 from rag.postprocess import Answer
 
 
 def make_chunk(scheme="HDFC Small Cap Fund", section="Exit load", distance=0.16,
                url="https://groww.in/mutual-funds/hdfc-small-cap-fund-direct-growth",
-               text="Exit load of 1% if redeemed within 1 year", fetched="2026-09-29"):
+               text="Exit load of 1% if redeemed within 1 year", fetched="2026-09-29",
+               scheme_short=None):
     return retrieval.ScoredChunk(
         chunk_id="c0", text=text, distance=distance, section=section,
-        scheme=scheme, scheme_short=scheme, doc_type="scheme_page",
+        scheme=scheme, scheme_short=scheme_short or scheme, doc_type="scheme_page",
         source_url=url, source_tier="aggregator", fetched_at=fetched,
     )
 
@@ -320,3 +322,362 @@ class TestMissingKey:
 
         assert generator._client.__doc__ is None or True
         assert config.has_groq_key() in {True, False}
+
+
+# --- rate limiting ----------------------------------------------------------
+#
+# Regression coverage for the measured problem: the free tier allows 7,000
+# input tokens per minute and a grounded question costs ~1,300, so the ceiling
+# is about five questions a minute. A 429 used to become a hard error, and a
+# blind retry loop turned it into a ten-second stall before that same error.
+
+class FakeStatusError(Exception):
+    """Shaped like the Groq SDK's RateLimitError, which is all we read."""
+
+    def __init__(self, message, status_code, headers=None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response = type("R", (), {"headers": headers or {}})()
+
+
+RATE_LIMIT_BODY = (
+    "Rate limit reached for model `qwen/qwen3.8-27b` on input tokens per "
+    "minute (ITPM): Limit 7000, Used 6900, Requested 1677. "
+    "Please try again in 3.625714285s."
+)
+
+
+class TestRetryDelayParsing:
+    def test_reads_delay_from_429_body(self):
+        from rag.generator import _retry_after_seconds
+
+        exc = FakeStatusError(RATE_LIMIT_BODY, 429)
+        assert _retry_after_seconds(exc) == pytest.approx(3.6257, abs=0.01)
+
+    def test_prefers_retry_after_header(self):
+        from rag.generator import _retry_after_seconds
+
+        exc = FakeStatusError("slow down", 429, {"retry-after": "7"})
+        assert _retry_after_seconds(exc) == 7.0
+
+    def test_returns_none_when_server_says_nothing(self):
+        from rag.generator import _retry_after_seconds
+
+        assert _retry_after_seconds(FakeStatusError("boom", 500)) is None
+
+    def test_ignores_garbage_header(self):
+        from rag.generator import _retry_after_seconds
+
+        exc = FakeStatusError(RATE_LIMIT_BODY, 429, {"retry-after": "soon"})
+        assert _retry_after_seconds(exc) == pytest.approx(3.6257, abs=0.01)
+
+
+class TestTierSelfCalibration:
+    def test_adopts_limit_reported_by_server(self):
+        from rag.generator import _TokenWindow
+
+        window = _TokenWindow(limit=7000)
+        window.observe_limit("ITPM): Limit 30000, Used 1, Requested 2.")
+        assert window.limit == 30000
+
+    def test_ignores_body_without_a_limit(self):
+        from rag.generator import _TokenWindow
+
+        window = _TokenWindow(limit=7000)
+        window.observe_limit("upstream unavailable")
+        assert window.limit == 7000
+
+
+class TestTokenWindowPacing:
+    def test_under_budget_requests_never_wait(self, monkeypatch):
+        from rag import generator
+
+        clock = {"t": 1000.0}
+        monkeypatch.setattr(generator.time, "monotonic", lambda: clock["t"])
+        monkeypatch.setattr(generator.time, "sleep",
+                            lambda s: pytest.fail("must not sleep when under budget"))
+
+        window = generator._TokenWindow(limit=7000)   # 6,300 budget
+        assert window.reserve(1302) == 0.0
+        assert window.reserve(1302) == 0.0
+        assert window.used() == 2604
+
+    def test_pacing_wait_is_far_shorter_than_a_window(self):
+        """Regression, and the reason for the constant.
+
+        The limiter once waited up to 25s to make room while the token window
+        was 60s long. It therefore always ran out of patience, sent the request
+        anyway, and collected the 429 it was trying to avoid - 25 seconds of
+        dead time in front of the same error. Pacing must smooth a burst in
+        seconds, not try to outlast the window.
+        """
+        from rag import generator
+
+        assert generator.MAX_PACING_WAIT_S < generator.WINDOW_S / 2
+        assert generator.MAX_PACING_WAIT_S + generator.BACKOFF_CAP_S * 2 \
+            <= generator.MAX_TOTAL_WAIT_S + generator.BACKOFF_CAP_S
+
+    def test_smooths_a_burst_instead_of_sending_it_all_at_once(self, monkeypatch):
+        from rag import generator
+
+        clock = {"t": 1000.0}
+        slept = []
+        monkeypatch.setattr(generator.time, "monotonic", lambda: clock["t"])
+
+        def fake_sleep(seconds):
+            slept.append(seconds)
+            clock["t"] += seconds
+
+        monkeypatch.setattr(generator.time, "sleep", fake_sleep)
+
+        # Budget 900. Two 600-token requests fit only if the first is paced.
+        window = generator._TokenWindow(limit=1000)
+        window.reserve(600)
+        window.reserve(600)
+
+        assert slept, "the second request should have been paced"
+        assert sum(slept) <= generator.MAX_PACING_WAIT_S
+        assert window.used() == 1200
+
+    def test_records_usage_even_when_the_pacing_cap_is_hit(self, monkeypatch):
+        """Timeout must not understate usage.
+
+        Regression: on timeout the reservation used to be dropped, so the window
+        under-reported exactly when the process was already over its limit.
+        """
+        from rag import generator
+
+        clock = {"t": 1000.0}
+        monkeypatch.setattr(generator.time, "monotonic", lambda: clock["t"])
+        monkeypatch.setattr(generator.time, "sleep",
+                            lambda s: clock.__setitem__("t", clock["t"] + s))
+
+        window = generator._TokenWindow(limit=1000)   # 900 budget
+        window.reserve(1000)
+        assert window.used() == 1000, "the over-budget request is still recorded"
+
+
+class TestRetryClassification:
+    def test_transient_status_is_retried(self, monkeypatch):
+        from rag import generator
+
+        attempts = {"n": 0}
+
+        def flaky(messages, max_tokens):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise generator.GeneratorError("rate limited") from FakeStatusError(
+                    RATE_LIMIT_BODY, 429
+                )
+            return _stub_response("Exit load is 1%.")
+
+        monkeypatch.setattr(generator, "_call", flaky)
+        monkeypatch.setattr(generator.time, "sleep", lambda s: None)
+
+        completion = generator.complete([{"role": "user", "content": "hi"}])
+        assert completion.text == "Exit load is 1%."
+        assert attempts["n"] == 2
+        assert completion.retried is True
+
+    def test_bad_key_fails_immediately(self, monkeypatch):
+        """A 401 is a configuration error. Sleeping cannot fix it."""
+        from rag import generator
+
+        attempts = {"n": 0}
+
+        def unauthorized(messages, max_tokens):
+            attempts["n"] += 1
+            raise generator.GeneratorError("bad key") from FakeStatusError(
+                "Invalid API Key", 401
+            )
+
+        monkeypatch.setattr(generator, "_call", unauthorized)
+        monkeypatch.setattr(generator.time, "sleep", lambda s: None)
+
+        with pytest.raises(GeneratorError, match="bad key"):
+            generator.complete([{"role": "user", "content": "hi"}])
+        assert attempts["n"] == 1, "must not retry a 401"
+
+    def test_forget_releases_a_failed_reservation(self):
+        from rag.generator import _TokenWindow
+
+        window = _TokenWindow(limit=7000)
+        window.reserve(5000)
+        window.forget()
+        assert window.used() == 0
+
+    def test_gives_up_after_the_attempt_budget(self, monkeypatch):
+        from rag import generator
+
+        def always_limited(messages, max_tokens):
+            raise generator.GeneratorError("rate limited") from FakeStatusError(
+                RATE_LIMIT_BODY, 429
+            )
+
+        monkeypatch.setattr(generator, "_call", always_limited)
+        monkeypatch.setattr(generator.time, "sleep", lambda s: None)
+        monkeypatch.setattr(generator.time, "monotonic",
+                            lambda: 0.0)
+
+        with pytest.raises(GeneratorError, match="rate limiting"):
+            generator.complete([{"role": "user", "content": "hi"}])
+
+    def test_error_tells_the_user_how_long_to_wait(self, monkeypatch):
+        from rag import generator
+
+        def always_limited(messages, max_tokens):
+            raise generator.GeneratorError("rate limited") from FakeStatusError(
+                RATE_LIMIT_BODY, 429
+            )
+
+        monkeypatch.setattr(generator, "_call", always_limited)
+        monkeypatch.setattr(generator.time, "sleep", lambda s: None)
+        monkeypatch.setattr(generator.time, "monotonic", lambda: 0.0)
+
+        with pytest.raises(GeneratorError, match="Try again in about 4s"):
+            generator.complete([{"role": "user", "content": "hi"}])
+
+    def test_truncated_empty_answer_is_retried_once(self, monkeypatch):
+        from rag import generator
+
+        seen = []
+
+        def truncating_then_ok(messages, max_tokens):
+            seen.append(max_tokens)
+            if len(seen) == 1:
+                return _stub_response("", finish="length")
+            return _stub_response("Exit load is 1%.")
+
+        monkeypatch.setattr(generator, "_call", truncating_then_ok)
+        completion = generator.complete([{"role": "user", "content": "hi"}])
+        assert completion.text == "Exit load is 1%."
+        assert seen[1] > seen[0], "retry must raise the token budget"
+
+
+def _stub_response(text, finish="stop"):
+    """Minimal stand-in for a Groq chat-completions response object."""
+    message = type("M", (), {"content": text, "reasoning": None})()
+    choice = type("C", (), {"message": message, "finish_reason": finish})()
+    usage = type("U", (), {"completion_tokens": 20})()
+    return type("R", (), {"choices": [choice], "usage": usage})()
+
+
+class TestPromptSizeBudget:
+    def test_context_drops_redundant_fields(self):
+        """Every context character is billed against the ITPM cap.
+
+        The `retrieved:` date repeated in all eight blocks and the full
+        "- Direct Growth" plan suffix were both removed for token cost. The
+        freshness line still reaches the user, from chunk metadata.
+        """
+        chunk = make_chunk(scheme="HDFC Small Cap Fund - Direct Growth",
+                           scheme_short="HDFC Small Cap Fund",
+                           fetched="2026-09-29")
+        text = prompt.format_context([chunk])
+        assert "retrieved:" not in text
+        assert "2026-09-29" not in text
+        assert "scheme: HDFC Small Cap Fund" in text
+        assert "Direct Growth" not in text
+        # The section label must survive: the concept check depends on it.
+        assert "section: Exit load" in text
+        assert "source: https://" in text
+
+
+class TestAnswerCache:
+    """The rate limit is a per-minute input-token budget, so a repeated
+    question must not spend it twice."""
+
+    @pytest.fixture(autouse=True)
+    def _clean(self, monkeypatch):
+        from rag import pipeline
+
+        pipeline.clear_cache()
+        yield
+        pipeline.clear_cache()
+
+    def _stub(self, monkeypatch):
+        """Patch the network and retrieval out, count the LLM calls."""
+        from rag import guard, pipeline
+
+        calls = []
+
+        def fake_complete(messages, max_tokens=None):
+            calls.append(messages)
+            return fake("Exit load is 1% if redeemed within 1 year.\n"
+                        "Source: https://groww.in/mutual-funds/hdfc-small-cap-fund")
+
+        monkeypatch.setattr(pipeline.generator, "complete", fake_complete)
+        monkeypatch.setattr(pipeline.generator, "timed_complete",
+                            lambda m: (fake_complete(m), 0.5))
+        monkeypatch.setattr(pipeline.retrieval, "retrieve",
+                            lambda q, k=None: [make_chunk()])
+        monkeypatch.setattr(pipeline.retrieval, "best_distance", lambda c: 0.16)
+        monkeypatch.setattr(pipeline.retrieval, "grounding_context",
+                            lambda c: "Exit load 1%")
+        monkeypatch.setattr(pipeline.retrieval, "freshness_date", lambda c: "2026-09-29")
+        monkeypatch.setattr(guard, "check_grounding",
+                            lambda *a, **k: Verdict(action="answer", reason="grounded"))
+        return calls
+
+    def test_repeat_question_costs_one_call(self, monkeypatch):
+        from rag import pipeline
+
+        calls = self._stub(monkeypatch)
+        q = "What is the exit load of HDFC Small Cap Fund?"
+
+        first = pipeline.answer_question(q)
+        second = pipeline.answer_question(q)
+
+        assert len(calls) == 1, "the second ask must come from cache"
+        assert first.answer.text == second.answer.text
+        assert second.chunks, "cached replay must still return chunks for display"
+
+    def test_cache_survives_a_different_question(self, monkeypatch):
+        from rag import pipeline
+
+        calls = self._stub(monkeypatch)
+        pipeline.answer_question("What is the exit load of HDFC Small Cap Fund?")
+        pipeline.answer_question("What is the NAV of HDFC Balanced Advantage Fund?")
+        assert len(calls) == 2
+
+    def test_has_context_is_part_of_the_key(self, monkeypatch):
+        """The dangling-reference gate behaves differently with history, so
+        two runs that differ only on that must not share a cache entry."""
+        from rag import pipeline
+
+        calls = self._stub(monkeypatch)
+        pipeline._cached_answer("What is the exit load?", False)
+        pipeline._cached_answer("What is the exit load?", True)
+        assert len(calls) == 2
+
+    def test_clear_cache_forces_a_new_call(self, monkeypatch):
+        from rag import pipeline
+
+        calls = self._stub(monkeypatch)
+        q = "What is the exit load of HDFC Small Cap Fund?"
+        pipeline.answer_question(q)
+        pipeline.clear_cache()
+        pipeline.answer_question(q)
+        assert len(calls) == 2, "ingest rebuilds must not serve stale answers"
+
+    def test_cached_replay_reports_its_original_latency(self, monkeypatch):
+        """A cache hit is fast, but reporting 0.5s for it would be a lie the
+        UI would show as a real measurement."""
+        from rag import pipeline
+
+        self._stub(monkeypatch)
+        q = "What is the exit load of HDFC Small Cap Fund?"
+        first = pipeline.answer_question(q)
+        second = pipeline.answer_question(q)
+        assert second.latency_s == first.latency_s
+        assert first.latency_s > 0
+
+    def test_guards_run_before_the_cache(self, monkeypatch):
+        """A refusal must never be served from, or written to, the cache."""
+        from rag import pipeline
+
+        calls = self._stub(monkeypatch)
+        advice = pipeline.answer_question("Should I invest in mutual funds?")
+        assert advice.refused
+        assert not calls, "a refused question must not reach the LLM"
+

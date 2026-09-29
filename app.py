@@ -10,16 +10,20 @@ Streamlit reruns this whole script on every interaction, so all state lives in
 st.session_state. Nothing is written to disk: the transcript and the
 conversation memory are per-session and vanish when the browser tab closes.
 
-The embedding model is loaded once and cached across reruns; without that,
-every keystroke-triggered rerun would pay the MiniLM load cost.
+`boot.ensure_ready()` runs once per process, guarded so reruns are free. It
+warms the embedding model and builds the vector store if it is missing, which
+is what lets a fresh deploy answer at all without a separate ingestion step.
+See rag/boot.py.
 """
 
 from __future__ import annotations
 
+import time
+
 import streamlit as st
 
 import config
-from rag import guard, retrieval
+from rag import boot, guard, retrieval
 from rag.generator import GeneratorError
 from rag.memory import Conversation
 from rag.pipeline import answer_question
@@ -34,6 +38,17 @@ DISCLAIMER = "Facts-only. No investment advice."
 
 st.set_page_config(page_title="Mutual Fund FAQ Assistant", page_icon="📊",
                    layout="centered")
+
+# Once per server process, not once per rerun. The work is ~1s on a warm store
+# and ~5s on a cold one, and it has to happen before the first question either
+# way - doing it lazily just moved the wait from page load to first answer.
+if not st.session_state.get("_booted"):
+    _started = time.time()
+    with st.spinner("Preparing the assistant…"):
+        _status = boot.ensure_ready()
+    st.session_state["_booted"] = True
+    st.session_state["_boot_seconds"] = time.time() - _started
+    st.session_state["_boot_status"] = _status
 
 
 # --- session state ---------------------------------------------------------
@@ -175,8 +190,12 @@ def ask(question: str) -> None:
 
     # Stored only after a successful call, so a failed turn is not replayed as
     # if it had produced an answer. resolved_question is stored so the rewrite
-    # indicator survives the rerun; it is re-derived here, not re-shown from
-    # the transient caption above.
+    # indicator survives the next rerun.
+    #
+    # No st.rerun() here on purpose. The turn is already on screen and already
+    # in session_state, so a rerun would render the identical answer a second
+    # time and re-walk the whole transcript to do it - cost that grows with
+    # every message in the conversation, for no change in what the user sees.
     st.session_state.messages.append({
         "role": "assistant",
         "answer": payload,
@@ -205,6 +224,14 @@ if missing:
     )
     st.stop()
 
+# A boot that could not reach the store or the model means every question will
+# come back as "I don't know". Say so, rather than letting the user find out.
+_boot = st.session_state.get("_boot_status")
+if _boot is not None and _boot.errors:
+    for _error in _boot.errors:
+        st.error("Startup problem: {}".format(_error))
+    st.stop()
+
 column, button_column = st.columns([5, 1])
 with column:
     st.markdown("**Try one of these:**")
@@ -224,4 +251,3 @@ typed = st.chat_input("Ask about fees, exit load, minimum SIP, benchmark, AUM, t
 question = st.session_state.pop("pending_question", "") or typed
 if question:
     ask(question)
-    st.rerun()

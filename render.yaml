@@ -1,0 +1,56 @@
+# Render blueprint. Render reads this on every deploy of the connected repo.
+#
+# The single most important line here is the build command. The 87MB ONNX
+# embedding model is fetched during BUILD, so it is baked into the image and no
+# visitor ever waits on that download. Fetching it lazily at runtime put ~13s
+# in front of the first question on every cold start.
+
+services:
+  - type: web
+    name: rag-chat-bot
+    runtime: python
+    plan: free
+    region: singapore
+    # Pinned because the build must not depend on Render's default. onnxruntime
+    # and chromadb both ship 3.12 wheels, so this is the version where the build
+    # is a wheel install rather than a source compile.
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: qwen/qwen3.8-27b
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Keep the ONNX runtime single-threaded. On a 512MB free instance,
+      # per-operator thread pools cost more memory than they save.
+      - key: OMP_NUM_THREADS
+        value: "1"
+    # `pip install` is included deliberately: with a custom buildCommand, Render
+    # does not install requirements.txt for you. Without it the app deploys and
+    # then dies on import.
+    #
+    # `python -m rag.boot` is the vector DB rebuild. It does two jobs at build
+    # time instead of at request time:
+    #   1. downloads the ~87MB ONNX embedding model into data/models/
+    #   2. chunks data/raw/ (committed snapshots), embeds, and writes
+    #      data/chroma/
+    # Both are git-ignored build artifacts, and the free tier has no persistent
+    # disk, so a build is the only chance to create them. Without this the
+    # collection comes up empty and every question is refused as "I don't know".
+    # It exits non-zero on failure, so a broken deploy fails here rather than
+    # shipping a service that cannot answer anything. It needs no GROQ_API_KEY.
+    # Measured: 17.6s cold, of which 13.6s is the model download.
+    buildCommand: >-
+      pip install --upgrade pip
+      && pip install -r requirements.txt
+      && python -m rag.boot
+    startCommand: >-
+      streamlit run app.py
+      --server.port $PORT
+      --server.address 0.0.0.0
+      --server.headless true
+      --server.enableWebsocketCompression true
+    healthCheckPath: /_stcore/health
+    autoDeploy: true

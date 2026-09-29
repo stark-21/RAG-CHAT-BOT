@@ -11,6 +11,7 @@ retrieval would be noise.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 
@@ -53,9 +54,7 @@ class ScoredChunk:
         return f"{self.scheme_short} - {self.section}"
 
 
-def retrieve(question: str, k: int | None = None) -> list[ScoredChunk]:
-    """Embed the question and return the top-k chunks, closest first."""
-    top_k = k or config.CONFIG.top_k
+def _query(question: str, top_k: int) -> list[ScoredChunk]:
     vector = embed_query(question)
 
     result = get_collection().query(
@@ -71,6 +70,7 @@ def retrieve(question: str, k: int | None = None) -> list[ScoredChunk]:
 
     chunks: list[ScoredChunk] = []
     for chunk_id, doc, meta, distance in zip(ids, documents, metadatas, distances):
+        meta = meta or {}
         chunks.append(
             ScoredChunk(
                 chunk_id=chunk_id,
@@ -86,6 +86,30 @@ def retrieve(question: str, k: int | None = None) -> list[ScoredChunk]:
             )
         )
     return chunks
+
+
+# Bounded so a long session cannot grow this without limit. Small on purpose:
+# the wins are the repeat question and the follow-up that resolves to a
+# question already asked, not general reuse.
+@lru_cache(maxsize=64)
+def _cached_query(question: str, top_k: int) -> tuple[ScoredChunk, ...]:
+    return tuple(_query(question, top_k))
+
+
+def clear_cache() -> None:
+    """Drop cached retrieval results. Called after the store is rebuilt."""
+    _cached_query.cache_clear()
+
+
+def retrieve(question: str, k: int | None = None) -> list[ScoredChunk]:
+    """Embed the question and return the top-k chunks, closest first.
+
+    Cached on (question, k). The corpus is immutable for the life of the
+    process, so two identical questions cannot retrieve differently, and
+    returning a copy keeps a caller from mutating the cached entry.
+    """
+    top_k = k or config.CONFIG.top_k
+    return list(_cached_query(question.strip(), top_k))
 
 
 def best_distance(chunks: list[ScoredChunk]) -> float | None:

@@ -21,6 +21,12 @@ __pycache__/
 # --- Build artifacts: regenerate with `python ingest.py` ---
 data/chroma/
 
+# --- Downloaded model weights ---
+# The ONNX embedding model is ~87MB. It is fetched during the deploy build
+# (see render.yaml) and baked into the image, so it never needs to be
+# committed and never needs downloading in front of a user.
+data/models/
+
 # --- Large or regenerable artifacts ---
 # Keep data/raw/ snapshots and data/chunks.txt in version control: they are
 # reviewable evidence of the ingestion + chunking steps (PRD N4).

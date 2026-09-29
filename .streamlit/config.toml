@@ -1,0 +1,38 @@
+# Streamlit server settings.
+#
+# These are performance settings, not cosmetic ones. The defaults cost real
+# latency on a small host and phone home about the deployment on every start.
+
+[server]
+# Required on Render and any container: without it Streamlit tries to open a
+# browser and to prompt for an email on first run, which blocks startup.
+headless = true
+
+# Do not watch the source tree. Streamlit stats every tracked file on each rerun,
+# and data/chroma changes on every query, so watching turns each keystroke into
+# a full directory walk. This is a performance setting, not a debugging one, and
+# it is why edits here need a manual restart.
+fileWatcherType = "none"
+
+# One worker process. Streamlit multiplexes concurrent sessions over a single
+# event loop, so extra workers would each pay the ~244MB resident cost for the
+# same ONNX model. On a 512MB instance that turns a slow page into a dead one.
+
+# Nothing here needs uploading, and the default 200MB is only a number to
+# reject. The app has no file input.
+maxUploadSize = 1
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+# Fail a stuck script instead of leaving the browser spinning forever. Matches
+# the generator's own retry budget, so a genuinely slow turn reports rather
+# than hangs.
+fastReruns = true
+
+[logger]
+level = "info"
+
+[theme]
+base = "light"

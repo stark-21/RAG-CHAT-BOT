@@ -7,7 +7,14 @@
 # and commit that alongside this file.
 
 # --- Embeddings (local, no API key) ---
-sentence-transformers>=5.0.0      # provides all-MiniLM-L6-v2 (384-dim)
+# ONNX Runtime, not sentence-transformers. Same all-MiniLM-L6-v2 weights and
+# numerically identical vectors (measured cosine 1.0, max abs diff 1.5e-7), but
+# the model loads in 0.25s instead of 12.28s and the process holds ~244MB
+# instead of 762MB. Render's free tier has 512MB, so the difference between
+# fitting and being OOM-killed was the whole "the site takes forever to load"
+# problem. It also drops torch and its ~2GB of wheels from the deploy.
+onnxruntime>=1.18.0
+tokenizers>=0.20.0
 
 # --- Vector store (local, persisted to disk) ---
 chromadb>=1.0.0

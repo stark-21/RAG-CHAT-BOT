@@ -5,8 +5,14 @@ A 200 from the server does not prove the app works: Streamlit renders over a
 websocket, so the shell can serve fine while the app body raises on every run.
 AppTest is what catches that.
 
-These hit the real pipeline, so they make real Groq calls. The UI contract is
-worth that cost, but it is why this file is separate from the unit tests.
+The Groq call is stubbed by the `fake_llm` fixture in conftest.py, at the
+`_call` seam, so the rate limiter, the response parsing and all of postprocess
+still run. These tests previously made live API calls, which made the suite's
+result depend on the provider's per-minute quota. See conftest.py.
+
+What is deliberately NOT stubbed: the guards, retrieval, Chroma and the whole
+render path. A refusal here is a real refusal, and the chunks in the Sources
+expander are the chunks that were really retrieved.
 """
 
 from __future__ import annotations
@@ -18,6 +24,12 @@ import config
 
 TIMEOUT = 180
 APP_PATH = config.BASE_DIR / "app.py"
+
+
+@pytest.fixture(autouse=True)
+def _llm(fake_llm):
+    """Every test in this file runs against the stub, none hit the network."""
+    return fake_llm
 
 
 def launch() -> AppTest:
