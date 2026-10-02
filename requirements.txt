@@ -23,6 +23,14 @@ chromadb>=1.0.0
 groq>=0.15.0
 
 # --- UI ---
+# FastAPI + uvicorn serve the hand-built HTML/CSS/JS front end in static/ and
+# expose rag.pipeline over JSON. server.py is the deployed entry point.
+fastapi>=0.115.0
+uvicorn>=0.30.0
+
+# streamlit is no longer the deployed UI. It is still a dependency because
+# app.py is the superseded Streamlit front end and tests/test_app.py exercises
+# it, so removing this would delete 19 passing tests for no gain.
 streamlit>=1.40.0
 
 # --- Config / secrets ---

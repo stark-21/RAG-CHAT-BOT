@@ -46,11 +46,15 @@ services:
       pip install --upgrade pip
       && pip install -r requirements.txt
       && python -m rag.boot
+    # uvicorn serves static/ (the Stitch "Calm Financial Clarity" UI) and the
+    # /api/chat JSON endpoints in server.py. One worker, deliberately: the
+    # conversation memory lives in-process, so a second worker would silently
+    # hand some visitors a stateless assistant. The question travels in a POST
+    # body, not a query string, so it never reaches uvicorn's access log.
     startCommand: >-
-      streamlit run app.py
-      --server.port $PORT
-      --server.address 0.0.0.0
-      --server.headless true
-      --server.enableWebsocketCompression true
-    healthCheckPath: /_stcore/health
+      python -m uvicorn server:app
+      --host 0.0.0.0
+      --port $PORT
+      --workers 1
+    healthCheckPath: /api/health
     autoDeploy: true

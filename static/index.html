@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>MF FAQ Assistant — Facts-only mutual fund answers</title>
+<meta content="Facts-only RAG assistant over official HDFC mutual fund scheme documents. Not investment advice." name="description">
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Inter:wght@100..900&amp;display=swap" rel="stylesheet">
+<link href="/static/styles.css" rel="stylesheet">
+</head>
+<body class="theme-light">
+
+<header class="app-header">
+  <div class="header-row">
+    <div class="header-brand">
+      <button class="sidebar-toggle" id="sidebar-toggle" title="Menu" type="button">
+        <span class="material-symbols-outlined ms-20">menu</span>
+      </button>
+      <img alt="MF FAQ Assistant Logo" class="brand-logo" height="32" src="/static/logo.svg" width="32">
+      <span class="brand-title">MF FAQ Assistant</span>
+      <div class="pill pill-subtle header-status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>Facts only · No investment advice</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="pill pill-container header-verified">
+        <span class="material-symbols-outlined icon-primary ms-17">verified</span>
+        <span>Verified Sources (AMC · AMFI · SEBI)</span>
+      </div>
+      <button class="icon-btn" id="theme-toggle" title="Toggle theme" type="button">
+        <span class="material-symbols-outlined ms-20" id="theme-toggle-icon">dark_mode</span>
+      </button>
+      <button class="icon-btn" id="help-btn" title="Documentation &amp; Help" type="button">
+        <span class="material-symbols-outlined ms-20">help_outline</span>
+      </button>
+      <div class="avatar-user" aria-hidden="true">
+        <span class="material-symbols-outlined ms-18">person</span>
+      </div>
+    </div>
+  </div>
+  <div class="disclaimer-bar">
+    <div class="disclaimer-inner">
+      <span class="material-symbols-outlined icon-primary ms-15">lock</span>
+      <span id="banner-text">Facts-only assistant. Answers are extracted strictly from official public documents and are not investment advice or recommendations.</span>
+    </div>
+  </div>
+</header>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-top">
+    <button class="new-inquiry" id="new-inquiry" type="button">
+      <span class="material-symbols-outlined icon-primary ms-20">add</span>
+      <span>New inquiry</span>
+    </button>
+    <div class="sidebar-scroll">
+      <span class="sidebar-label">Recent inquiries</span>
+      <nav class="history-list" id="history-list" aria-label="Recent inquiries"></nav>
+    </div>
+  </div>
+  <div class="sidebar-bottom">
+    <span class="sidebar-label sidebar-label-inset">Official Sources We Query</span>
+    <ul class="source-list" id="source-list"></ul>
+  </div>
+</aside>
+
+<div class="content">
+  <main class="main">
+    <div class="thread-wrap">
+      <div class="thread" id="thread"></div>
+
+      <div class="suggestions" id="suggestions" hidden>
+        <span class="suggestions-label">Suggested factual inquiries:</span>
+        <div class="suggestions-row" id="suggestions-row"></div>
+      </div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer-inner">
+        <div class="composer-bar">
+          <input aria-label="Ask a factual question about the schemes"
+                 autocomplete="off"
+                 class="composer-input"
+                 id="question-input"
+                 maxlength="500"
+                 placeholder="Ask about expense ratios, exit loads, taxation, or SID statutory rules..."
+                 type="text">
+          <button class="send-btn" id="send-btn" title="Ask" type="button">
+            <span class="material-symbols-outlined ms-20">arrow_upward</span>
+          </button>
+        </div>
+        <p class="composer-note" id="footer-note">
+          Mutual fund investments are subject to market risks. Read all scheme
+          related documents carefully before investing.
+        </p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="help-sheet" id="help-sheet" hidden>
+  <div class="help-sheet-backdrop" data-close-help></div>
+  <div class="help-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <div class="help-sheet-head">
+      <span class="material-symbols-outlined icon-primary ms-18" aria-hidden="true">help_outline</span>
+      <h2 class="help-sheet-title" id="help-title">Documentation &amp; Help</h2>
+      <button class="icon-btn" data-close-help title="Close" type="button">
+        <span class="material-symbols-outlined ms-20">close</span>
+      </button>
+    </div>
+    <div class="help-sheet-body" id="help-body"></div>
+  </div>
+</div>
+
+<template id="tpl-empty">
+  <section class="empty-state">
+    <div class="empty-badge">
+      <span class="material-symbols-outlined ms-24" aria-hidden="true">balance</span>
+    </div>
+    <h1 class="empty-title">Facts only. Sources cited.</h1>
+    <p class="empty-body" id="corpus-note">
+      Ask about expense ratios, exit loads, minimum SIP amounts, benchmarks, AUM
+      or riskometer readings. Every answer is extracted from the official scheme
+      documents in this demo's corpus and carries the source it came from.
+    </p>
+    <ul class="empty-guards">
+      <li><span class="material-symbols-outlined icon-primary ms-17" aria-hidden="true">block</span> Advice and opinion questions are refused</li>
+      <li><span class="material-symbols-outlined icon-primary ms-17" aria-hidden="true">shield_lock</span> Personal identifiers are never stored or echoed</li>
+      <li><span class="material-symbols-outlined icon-primary ms-17" aria-hidden="true">help</span> If the sources do not cover it, the assistant says so</li>
+    </ul>
+  </section>
+</template>
+
+<template id="tpl-user">
+  <article class="turn">
+    <div class="user-row">
+      <div class="user-bubble"><p class="user-text"></p></div>
+    </div>
+  </article>
+</template>
+
+<template id="tpl-assistant">
+  <article class="turn">
+    <div class="assistant-row">
+      <div class="avatar-assistant">
+        <span class="material-symbols-outlined ms-17"></span>
+      </div>
+      <div class="assistant-col">
+        <div class="assistant-bubble">
+          <div class="mandate-row" hidden>
+            <span class="pill pill-subtle pill-mandate"></span>
+            <span class="mandate-note"></span>
+          </div>
+          <p class="rewrite-note" hidden></p>
+          <div class="answer-body"></div>
+          <div class="warnings" hidden></div>
+          <div class="source-cards"></div>
+          <div class="chunk-panel" hidden>
+            <button class="chunk-toggle" type="button">
+              <span class="material-symbols-outlined ms-15">unfold_more</span>
+              <span class="chunk-toggle-label"></span>
+            </button>
+            <div class="chunk-list" hidden></div>
+          </div>
+          <div class="answer-footer">
+            <span class="citation"></span>
+            <div class="answer-actions">
+              <button class="action-btn" data-act="copy" title="Copy response" type="button">
+                <span class="material-symbols-outlined ms-17">content_copy</span>
+              </button>
+              <button class="action-btn" data-act="up" title="Accurate extraction" type="button">
+                <span class="material-symbols-outlined ms-17">thumb_up</span>
+              </button>
+              <button class="action-btn" data-act="down" title="Report discrepancy" type="button">
+                <span class="material-symbols-outlined ms-17">thumb_down</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </article>
+</template>
+
+<template id="tpl-pending">
+  <article class="turn">
+    <div class="assistant-row">
+      <div class="avatar-pending">
+        <span class="material-symbols-outlined ms-17 material-symbols-spin icon-primary">sync</span>
+      </div>
+      <div class="pending-label">
+        <span class="pending-text">Checking official sources (corpus index)</span>
+        <span class="pending-dots" aria-hidden="true">
+          <span class="pending-dot"></span>
+          <span class="pending-dot pending-dot-2"></span>
+          <span class="pending-dot pending-dot-3"></span>
+        </span>
+      </div>
+    </div>
+  </article>
+</template>
+
+<template id="tpl-error">
+  <article class="turn">
+    <div class="assistant-row">
+      <div class="avatar-assistant avatar-error">
+        <span class="material-symbols-outlined ms-17">warning</span>
+      </div>
+      <div class="assistant-col">
+        <div class="assistant-bubble error-bubble">
+          <div class="mandate-row">
+            <span class="pill pill-error">Request Failed</span>
+            <span class="mandate-note">No answer was generated</span>
+          </div>
+          <p class="answer-text error-text"></p>
+          <div class="answer-footer footer-end">
+            <div class="answer-actions">
+              <button class="action-btn" data-act="retry" title="Try again" type="button">
+                <span class="material-symbols-outlined ms-17">refresh</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </article>
+</template>
+
+<template id="tpl-chunk">
+  <div class="chunk">
+    <div class="chunk-head">
+      <span class="chunk-title"></span>
+      <span class="chunk-distance"></span>
+    </div>
+    <div class="chunk-url"></div>
+    <p class="chunk-text"></p>
+  </div>
+</template>
+
+<script src="/static/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" width="40" height="40" role="img" aria-label="MF FAQ Assistant">
+  <rect width="40" height="40" rx="10" fill="#0F766E"/>
+  <path d="M12 28V20C12 18.8954 12.8954 18 14 18H16C17.1046 18 18 18.8954 18 20V28" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M22 28V14C22 12.8954 22.8954 12 24 12H26C27.1046 12 28 12.8954 28 14V28" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M10 28H30" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="28" cy="11" r="3.5" fill="#10B981" stroke="#0F766E" stroke-width="1.5"/>
+  <path d="M26.8 11L27.6 11.8L29.2 10.2" stroke="white" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

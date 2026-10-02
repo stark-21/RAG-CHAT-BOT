@@ -49,7 +49,7 @@ Sources must be **official** AMC / SEBI / AMFI pages only. See
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` (local, 384-dim, no API key) |
 | Vector DB | ChromaDB, persisted to disk |
 | LLM | Groq (temperature 0), key in `.env` |
-| UI | Streamlit |
+| UI | FastAPI + hand-built HTML/CSS/JS in `static/` (no Streamlit) |
 
 Everything is free tier. The only metered call is Groq.
 
@@ -79,28 +79,36 @@ python sources.py
 > If `import encodings` fails, use a working interpreter, e.g.
 > `& "$env:LOCALAPPDATA\Python\pythoncore-3.14-64\python.exe"`.
 
-## Run (available from Phase 2 onward)
+## Run
 
 ```bash
 python ingest.py            # once: load -> chunk -> embed -> store
-streamlit run app.py        # serve the UI
+python -m uvicorn server:app --port 8000    # serve the UI
 ```
 
-These commands are not available yet. Ingestion is idempotent: re-running it
-rebuilds the store rather than duplicating records.
+Ingestion is idempotent: re-running it rebuilds the store rather than
+duplicating records.
+
+The deployed entry point is `server.py`, a FastAPI app that serves `static/` and
+exposes `POST /api/chat`. It is a thin adapter over `rag.pipeline.answer_question()`
+and changes no pipeline behaviour — same guards, same grounding gate, same
+post-processing, same conversation memory. `app.py` is the superseded Streamlit
+front end, kept only because `tests/test_app.py` exercises it.
 
 ## Project layout
 
 ```
 .
-├── app.py                  # Streamlit UI                     (Phase 6)
+├── server.py               # FastAPI: static/ + /api/chat            (Phase 6)
+├── static/                 # the UI: index.html, styles.css, app.js
+├── app.py                  # superseded Streamlit UI          (Phase 6, legacy)
 ├── config.py               # .env loader, paths, tunables     (Phase 1)
 ├── sources.py              # corpus registry: 5 schemes       (Phase 1)
 ├── ingest.py               # ingestion CLI - run once          (Phase 3)
 ├── rag/                    # pure pipeline modules            (Phases 2-5)
 ├── data/
 │   ├── raw/                # source snapshots
-│   ├── chunks.txt          # inspectable chunk dump           (Phase 2)
+│   ├── chunks/             # inspectable chunk dump           (Phase 2)
 │   └── chroma/             # persisted vector store           (Phase 3)
 ├── tests/
 ├── evals/
